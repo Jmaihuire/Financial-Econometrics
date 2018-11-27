@@ -149,7 +149,7 @@ gold &lt;- read_csv(&quot;gld.csv&quot;) %&gt;%                  # read SPDR gol
                R = log(X/l.X),                   # log return
                DX = X - l.X) %&gt;%                 # 1st order difference in X
           filter(is.na(R) == 0) %&gt;%              # remove missing value
-          filter(Date &gt;= &quot;2011-01-01&quot;) %&gt;%       # use 2012-2014 data 
+          filter(Date &gt;= &quot;2011-01-01&quot;) %&gt;%       # use 2011 data 
           filter(Date &lt;= &quot;2011-12-31&quot;)
 
 head(gold, n = 5L)</code></pre>
