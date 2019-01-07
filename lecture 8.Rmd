@@ -1,0 +1,168 @@
+---
+title: "R Code for Lecture 8"
+output: html_document
+---
+
+```{r, message = F, warning = F}
+library(WindR)      
+library(TSA)
+library(MTS)
+library(vars)
+library(dplyr)
+```
+
+## 1. Daily Data of S&P 500, S&P 400 (MidCap) and S&P 600 (SmallCap) 
+
+We download all data from "Wind Financial Terminal" (WTF) via its "Data Feed Services" (WDFS). To use WDFS in R/RSrtudio, one should first install the `WindR` package, then load it by `library(WindR)`[^1], and launch it using `w.start()`. 
+
+[^1]: WDFS (WindR package) is not currently available for R/RStudio installed on Mac OS computers. 
+```{r, message = F, warning = F, comment=FALSE, results=FALSE}
+w.start()           # launch WindR DataFeed
+  
+index <- w.wsd("000001.SH,399106.SZ,HSCI.HI,SP500.SPI,SP400.SPI,SP600.SPI","close",
+               "2011-01-01","2014-12-31","TradingCalendar=NYSE")$Data %>%
+  rename(SH = `000001.SH`, SZ = `399106.SZ`, SP500 = `SP500.SPI`,
+         SP400 = `SP400.SPI`, SP600 = `SP600.SPI`, date = `DATETIME`) %>%
+  mutate(R.SH = (SH-lag(SH, n = 1L))/lag(SH, n = 1L),
+         R.SZ = (SZ-lag(SZ, n = 1L))/lag(SZ, n = 1L),
+         R.SP500 = (SP500-lag(SP500, n = 1L))/lag(SP500, n = 1L),
+         R.SP400 = (SP400-lag(SP400, n = 1L))/lag(SP400, n = 1L),
+         R.SP600 = (SP600-lag(SP600, n = 1L))/lag(SP600, n = 1L)) 
+```
+
+***
+
+## 2. LSE of Vector Autoregressive Model using S&P 500/400/600 Data
+
+```{r, message = F, warning = F}
+data <- filter(select(index, R.SP500, R.SP400, R.SP600), !is.na(R.SP500))
+```
+
+### 2.1 Fitting a VAR($p$) model with $p=1$ selected by BIC 
+
+Note: To use the `VAR()` function below, one need first install the `vars` package.
+```{r, message = F, warning = F}
+SPvar.bic <- VAR(data, lag.max = 3, ic = "SC")
+summary(SPvar.bic)
+```
+
+```{r, message = F, warning = F}
+## Refitting the model by leaving out insignificant coefficients
+restrict(SPvar.bic, thresh = 1.9)
+```
+
+```{r, message = F, warning = F}
+## ACF of residuals
+ACF.SPvar.bic <- acf(residuals(SPvar.bic), na.action = na.pass, plot = F)
+plot(ACF.SPvar.bic)
+```
+
+```{r, message = F, warning = F}
+## Portmanteau tests
+serial.test(SPvar.bic)
+```
+
+Note: Using AIC (set `ic = "AIC"`) and HQIC result in a VAR($p$) model with $p=3$ and $p=1$, respectively.
+ 
+### 2.2 Fitting a VAR($p$) model with $p=2$ 
+```{r, message = F, warning = F}
+SPvar2 <- VAR(data, p = 2)
+summary(SPvar2)
+```
+
+```{r, message = F, warning = F}
+## Refitting the model by leaving out insignificant coefficients
+restrict(SPvar2, thresh = 1.9)
+```
+
+```{r, message = F, warning = F}
+## ACF of residuals
+ACF.SPvar2 <- acf(residuals(SPvar2), na.action = na.pass, plot = F)
+plot(ACF.SPvar2)
+```
+
+```{r, message = F, warning = F}
+## Portmanteau tests
+serial.test(SPvar2)
+```
+
+Note: The MLE of a VAR($p$) model can be implemented by the `VARMA()` function in the `MTS` package.
+
+## 3. LSE of Vector Autoregressive Model using S&P500, SH and SZ Data
+
+```{r, message = F, warning = F}
+data <- filter(select(index, R.SP500, R.SH, R.SZ), !is.na(R.SP500*R.SH))
+```
+
+```{r, message = F, warning = F}
+var.bic <- VAR(data, lag.max = 3, ic = "SC")
+summary(var.bic)
+## Refitting the model by leaving out insignificant coefficients
+restrict(var.bic, thresh = 1.9)
+ACF.var.bic <- acf(residuals(var.bic), na.action = na.pass, plot = F)
+plot(ACF.var.bic)
+serial.test(var.bic)
+```
+
+## Causality
+
+```{r, message = F, warning = F, comment=F, results=F}
+# Download data from Wind and clean it
+w.start()           
+index <- w.wsd("SP400.SPI,SP500.SPI","close",
+               "2011-01-01","2014-12-31","TradingCalendar=NYSE")$Data %>%
+  rename(SP400 = `SP400.SPI`, SP500 = `SP500.SPI`, date = `DATETIME`) %>%
+  mutate(R.SP400 = (SP400-lag(SP400, n = 1L))/lag(SP400, n = 1L),
+         R.SP500 = (SP500-lag(SP500, n = 1L))/lag(SP500, n = 1L)) 
+```
+
+```{r, message = F, warning = F}
+# LSE of VAR(2) model of S&P 500/400 index
+data <- filter(select(index, R.SP400, R.SP500), !is.na(R.SP500*R.SP400))
+var.lse <- VAR(data, ic = "SC")
+summary(var.lse)
+```
+
+```{r, message = F, warning = F}
+# Test if S&P 400 index Granger causes S&P 500 index
+causality(var.lse, cause = "R.SP400")
+# Test if S&P 500 index Granger causes S&P 400 index
+causality(var.lse, cause = "R.SP500")
+```
+
+```{r, message = F, warning = F}
+var.lse <- VAR(data, p = 2)
+summary(var.lse)
+```
+
+```{r, message = F, warning = F}
+Psi(var.lse)
+irf.var.lse <- irf(var.lse)
+plot(irf.var.lse)
+```
+
+## ECM
+
+```{r, message = F, warning = F}
+# Monte Carlo simulation of ECM model
+n <- 200; e <- rnorm(n)
+X = cumsum(e)
+Y = X + rnorm(n, 0, 1/2)
+
+t <- lm(Y ~ X)
+hatZ <- residuals(t)[-c(1, n)]
+summary(t)
+
+dX <- diff(X); dY <- diff(Y)
+data <- data.frame(embed(cbind(dY, dX), 2), hatZ)
+colnames(data) <- c("dY0", "dX0", "dY1", "dX1", "hatZ")
+attach(data)
+
+ecm <- lm(dY0 ~ hatZ + dX1)
+summary(ecm)
+
+# Use ECMvar
+
+```
+
+
